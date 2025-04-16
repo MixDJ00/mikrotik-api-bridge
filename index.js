@@ -37,6 +37,11 @@ async function connectToMikrotik() {
   }
 }
 
+// Endpoint kiểm tra kết nối
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'OK', message: 'API is running' });
+});
+
 // Endpoint để lấy danh sách proxy
 app.get('/api/proxies', apiKeyAuth, async (req, res) => {
   try {
@@ -59,11 +64,30 @@ app.post('/api/update-proxy', apiKeyAuth, async (req, res) => {
 
   try {
     const conn = await connectToMikrotik();
-    await conn.write('/ip/proxy/access/set', [
-      '=.id=' + proxyId,
-      '=user=' + username,
-      '=pass=' + password
+    // Tách proxyId thành IP và port
+    const [ip, port] = proxyId.split(':');
+    
+    // Tìm ID của proxy dựa trên IP và port
+    const proxies = await conn.write('/ip/proxy/access/print', [
+      '=.proplist=.id,target,port',
+      `?target=${ip}`,
+      `?port=${port}`
     ]);
+    
+    if (proxies.length === 0) {
+      conn.close();
+      return res.status(404).json({ error: 'Không tìm thấy proxy' });
+    }
+    
+    const proxyEntryId = proxies[0]['.id'];
+    
+    // Cập nhật username và password
+    await conn.write('/ip/proxy/access/set', [
+      `=.id=${proxyEntryId}`,
+      `=user=${username}`,
+      `=pass=${password}`
+    ]);
+    
     conn.close();
     res.json({ success: true, message: 'Đã cập nhật thành công' });
   } catch (error) {
